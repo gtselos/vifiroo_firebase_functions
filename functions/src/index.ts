@@ -107,9 +107,12 @@ function uint8ArrayToTensorImage(image: Uint8Array) : tf.Tensor3D {
 
 async function createMaskImage(segmentation: SemanticPartSegmentation, width: number, height: number) {
     const coloredPartImageData = toColoredPartMask(segmentation, RAINBOW_PART_COLORS);
+    if (coloredPartImageData == null) {
+        throw Error("Mask failed");
+    }
     const canvas = Canvas.createCanvas(width, height);
     const ctx = canvas.getContext('2d');
-    ctx.drawImage(coloredPartImageData, 0, 0);
+    ctx.putImageData(coloredPartImageData, 0, 0);
     const out = fs.createWriteStream('output/test.jpeg');
     const stream = canvas.createJPEGStream()
     stream.pipe(out)
