@@ -78,7 +78,7 @@ app.listen( port, async () => {
 } );
 
 async function readFile(tempFilePath: string) : Promise<Jimp> {
-    let image = await (await Jimp.read(tempFilePath));
+    let image = await Jimp.read(tempFilePath);
     return image;
 }
 
@@ -116,11 +116,18 @@ async function createMaskImage(segmentation: SemanticPartSegmentation, width: nu
     out.on('finish', () =>  console.log('The JPEG file was created.'));
 }
 
-function toColoredPartMask(partSegmentation: any, partColors: number[][]) {
+function toColoredPartMask(partSegmentation: SemanticPartSegmentation, partColors: number[][]) {
     if (Array.isArray(partSegmentation) && partSegmentation.length === 0) {
         return null;
     }
-    var _a = partSegmentation[0], width = _a.width, height = _a.height;
+    var multiPersonPartSegmentation;
+    if (!Array.isArray(partSegmentation)) {
+        multiPersonPartSegmentation = [partSegmentation];
+    }
+    else {
+        multiPersonPartSegmentation = partSegmentation;
+    }
+    var _a = multiPersonPartSegmentation[0], width = _a.width, height = _a.height;
     var bytes = new Uint8ClampedArray(width * height * 4);
     for (var i = 0; i < height * width; ++i) {
         var j = i * 4;
@@ -128,8 +135,8 @@ function toColoredPartMask(partSegmentation: any, partColors: number[][]) {
         bytes[j + 1] = 255;
         bytes[j + 2] = 255;
         bytes[j + 3] = 255;
-        for (var k = 0; k < partSegmentation.length; k++) {
-            var partId = partSegmentation[k].data[i];
+        for (var k = 0; k < multiPersonPartSegmentation.length; k++) {
+            var partId = multiPersonPartSegmentation[k].data[i];
             if (partId !== -1) {
                 var color = partColors[partId];
                 if (!color) {
