@@ -27,6 +27,7 @@ var RAINBOW_PART_COLORS = [
 
 const port = 3000;
 const app = express();
+const DELETE_ORIGINAL = true;
 let net: bodyPix.BodyPix;
    
 const UPLOAD_PATH = 'uploads';
@@ -56,12 +57,20 @@ app.post('/api/upload', upload.single('uploadedPic'), async (req, res) => {
       res.send('error: ' + error);
       return;
     }
-    let jimpImg = await readFile(req.file.path);
-    let img = await jimpToUint8Array(jimpImg, req.file.path);
+    var jimpImage = await readFile(req.file.path);
+    let img = await jimpToUint8Array(jimpImage, req.file.path);
     let tensorImage = uint8ArrayToTensorImage(img);
-    const segmentation = await net.segmentPersonParts(tensorImage);
-    createMaskImage(segmentation, jimpImg.bitmap.width, jimpImg.bitmap.height);
-    console.log(segmentation);
+    const segmentation = await net.segmentPersonParts(tensorImage,{
+        flipHorizontal: false,
+        internalResolution: 'high',
+        segmentationThreshold: 0.7,
+        maxDetections: 1,
+      });
+    let maskFilePath = await createMaskImage(segmentation, jimpImage.bitmap.width, jimpImage.bitmap.height);
+    addMaskToOriginal(jimpImage, await Jimp.read(maskFilePath));
+    if (DELETE_ORIGINAL) {
+        fs.unlinkSync(req.file.path);
+    }
     res.status(200);
     res.send('File uploaded!');
   })
@@ -105,7 +114,8 @@ function uint8ArrayToTensorImage(image: Uint8Array) : tf.Tensor3D {
     return tf.node.decodeImage(image) as tf.Tensor3D;
 }
 
-async function createMaskImage(segmentation: SemanticPartSegmentation, width: number, height: number) {
+async function createMaskImage(segmentation: SemanticPartSegmentation, width: number, height: number) : Promise<string> {
+    let outputFilePath = 'output/test.jpeg';
     const coloredPartImageData = toColoredPartMask(segmentation, RAINBOW_PART_COLORS);
     if (coloredPartImageData == null) {
         throw Error("Mask failed");
@@ -113,10 +123,16 @@ async function createMaskImage(segmentation: SemanticPartSegmentation, width: nu
     const canvas = Canvas.createCanvas(width, height);
     const ctx = canvas.getContext('2d');
     ctx.putImageData(coloredPartImageData, 0, 0);
-    const out = fs.createWriteStream('output/test.jpeg');
+    const out = fs.createWriteStream(outputFilePath);
     const stream = canvas.createJPEGStream()
-    stream.pipe(out)
-    out.on('finish', () =>  console.log('The JPEG file was created.'));
+    stream.pipe(out);
+    let end = new Promise<string>(function(resolve, reject) {
+        out.on('finish', () => {
+            console.log('The JPEG mask file was created.');
+            resolve(outputFilePath);
+        });
+    });
+    return end;
 }
 
 function toColoredPartMask(partSegmentation: SemanticPartSegmentation, partColors: number[][]) {
@@ -153,4 +169,21 @@ function toColoredPartMask(partSegmentation: SemanticPartSegmentation, partColor
         }
     }
     return Canvas.createImageData(bytes, width, height);
+}
+
+function addMaskToOriginal(original: Jimp, mask: Jimp) : void {
+    original.composite(mask, 0, 0,
+       {
+         mode: Jimp.BLEND_SCREEN,
+         opacitySource: 0.5,
+         opacityDest: 1
+       },
+       (err, img) => {
+           if (err) {
+               throw err;
+           }
+           img.write('output/test.jpeg');
+           console.log('The JPEG output file was created.');
+       }
+   );
 }
